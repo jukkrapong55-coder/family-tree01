@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจัดทำแผนผังลำดับญาติ (Family Tree Cloud App)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts - Prompt -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            font-family: 'Prompt', sans-serif;
+        }
+        
+        /* Grid background pattern for tree canvas */
+        .bg-grid-pattern {
+            background-color: #f8fafc;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        /* SVG Connection Lines Styling */
+        .tree-line {
+            stroke: #94a3b8;
+            stroke-width: 2.5;
+            fill: none;
+            transition: all 0.3s ease;
+        }
+        
+        .spouse-line {
+            stroke: #f43f5e;
+            stroke-width: 2;
+            stroke-dasharray: 4 4;
+            fill: none;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Animation Keyframes */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* Node Cards Drag & Hover */
+        .member-card {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .member-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 20px -5px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Custom File Input */
+        input[type="file"]::file-selector-button {
+            margin-right: 1rem;
+            padding: 0.4rem 1rem;
+            border-radius: 0.375rem;
+            background-color: #e0f2fe;
+            color: #0369a1;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        input[type="file"]::file-selector-button:hover {
+            background-color: #bae6fd;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen overflow-hidden flex flex-col">
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-white border-b border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3 z-20 shadow-sm">
+        <!-- Logo & Title -->
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center text-xl font-bold shadow-md shadow-indigo-200">
+                <i class="fa-solid fa-sitemap"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg leading-tight text-slate-800">แผนผังลำดับญาติของตระกูล</h1>
+                <p class="text-xs text-slate-500">ระบบบันทึกและเชื่อมโยงเครือญาติบน Cloud Database</p>
+            </div>
+        </div>
+
+        <!-- Center Search Bar -->
+        <div class="relative flex-1 max-w-md mx-2">
+            <div class="relative">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                <input type="text" id="searchInput" placeholder="ค้นหาชื่อ, ชื่อเล่น หรือนามสกุล..." 
+                    class="w-full pl-9 pr-8 py-1.5 text-sm bg-slate-100 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all">
+                <button id="clearSearchBtn" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">
+                    <i class="fa-solid fa-circle-xmark"></i>
+                </button>
+            </div>
+            <!-- Search Dropdown Results -->
+            <div id="searchResults" class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto hidden z-50"></div>
+        </div>
+
+        <!-- User Controls & Auth Action Bar -->
+        <div class="flex items-center gap-2">
+            <!-- Sync Indicator -->
+            <div id="syncStatus" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-500 rounded-full text-xs">
+                <span class="w-2 h-2 rounded-full bg-slate-400" id="syncDot"></span>
+                <span id="syncText">ยังไม่ล็อกอิน</span>
+            </div>
+
+            <!-- Add Root Member (If Tree Empty) -->
+            <button id="addRootBtn" onclick="openAddModal(null, 'root')" class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition shadow-sm">
+                <i class="fa-solid fa-user-plus"></i>
+                <span class="hidden md:inline">เพิ่มต้นตระกูล</span>
+            </button>
+
+            <div class="h-6 w-[1px] bg-slate-200 mx-1"></div>
+
+            <!-- User Auth Profile Button / Modal Trigger -->
+            <div id="userAuthSection" class="flex items-center gap-2">
+                <button id="loginModalBtn" onclick="openAuthModal('login')" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-1.5 rounded-lg text-sm font-medium transition shadow-sm">
+                    <i class="fa-solid fa-right-to-bracket"></i>
+                    <span>เข้าสู่ระบบ</span>
+                </button>
+                
+                <div id="userInfoDropdown" class="hidden flex items-center gap-2">
+                    <div class="flex items-center gap-2 bg-indigo-50 border border-indigo-100 px-3 py-1 rounded-lg">
+                        <i class="fa-solid fa-user-check text-indigo-600 text-xs"></i>
+                        <span id="userDisplayName" class="text-xs font-semibold text-indigo-900 max-w-[120px] truncate">ผู้ใช้งาน</span>
+                    </div>
+                    <button onclick="handleSignOut()" title="ออกจากระบบ" class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg text-sm transition">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area: Canvas View -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+        <!-- Floating Zoom Controls -->
+        <div class="absolute bottom-6 right-6 z-10 flex flex-col bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+            <button onclick="zoomIn()" title="ซูมเข้า" class="p-2.5 hover:bg-slate-100 text-slate-700 border-b border-slate-100 transition">
+                <i class="fa-solid fa-plus"></i>
+            </button>
+            <button onclick="resetZoomPan()" title="จัดกึ่งกลาง" class="p-2.5 hover:bg-slate-100 text-slate-700 border-b border-slate-100 text-xs font-semibold transition">
+                100%
+            </button>
+            <button onclick="zoomOut()" title="ซูมออก" class="p-2.5 hover:bg-slate-100 text-slate-700 transition">
+                <i class="fa-solid fa-minus"></i>
+            </button>
+        </div>
+
+        <!-- Legend Floating Box -->
+        <div class="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur border border-slate-200/80 p-3 rounded-xl shadow-sm text-xs space-y-2">
+            <div class="font-semibold text-slate-700 border-b border-slate-200 pb-1">สัญลักษณ์ผัง</div>
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-blue-500 inline-block"></span>
+                <span class="text-slate-600">ชาย</span>
+                <span class="w-3 h-3 rounded-full bg-pink-500 inline-block ml-2"></span>
+                <span class="text-slate-600">หญิง</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-1 bg-rose-500 border-t border-dashed border-rose-500"></span>
+                <span class="text-slate-600">คู่สมรส</span>
+                <span class="w-3 h-0.5 bg-slate-400"></span>
+                <span class="text-slate-600">สายเลือด</span>
+            </div>
+        </div>
+
+        <!-- Interactive Canvas Area -->
+        <main id="canvasContainer" class="flex-1 h-full w-full bg-grid-pattern relative overflow-hidden cursor-grab active:cursor-grabbing select-none">
+            <svg id="svgLines" class="absolute top-0 left-0 w-full h-full pointer-events-none z-0"></svg>
+            <div id="treeViewport" class="absolute top-0 left-0 origin-top-left transition-transform duration-75 ease-out z-1">
+                <div id="treeNodesContainer" class="relative"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MEMBER DETAILS SIDE PANEL (Drawer) -->
+    <div id="detailDrawer" class="fixed inset-y-0 right-0 w-80 md:w-96 bg-white shadow-2xl border-l border-slate-200 z-40 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col">
+        <div class="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+            <h3 class="font-bold text-slate-800 text-base">ข้อมูลสมาชิก</h3>
+            <button onclick="closeDetailDrawer()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-5 space-y-5" id="drawerBody"></div>
+        <div class="p-4 border-t border-slate-100 bg-slate-50 flex gap-2">
+            <button id="drawerEditBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5">
+                <i class="fa-solid fa-pen-to-square"></i> แก้ไข
+            </button>
+            <button id="drawerDeleteBtn" class="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 py-2 px-3 rounded-lg text-sm font-medium transition">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- AUTHENTICATION MODAL (Login / Register / Phone) -->
+    <div id="authModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-fade-in border border-slate-100">
+            <!-- Auth Header Tabs -->
+            <div class="flex border-b border-slate-100 bg-slate-50">
+                <button id="tabLoginBtn" onclick="switchAuthTab('login')" class="flex-1 py-3 text-sm font-semibold text-indigo-600 border-b-2 border-indigo-600 bg-white">
+                    เข้าสู่ระบบ
+                </button>
+                <button id="tabRegisterBtn" onclick="switchAuthTab('register')" class="flex-1 py-3 text-sm font-semibold text-slate-500 hover:text-slate-700">
+                    ลงทะเบียน
+                </button>
+            </div>
+
+            <div class="p-6">
+                <!-- Login Form -->
+                <form id="loginForm" onsubmit="handleEmailLogin(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">อีเมล</label>
+                        <input type="email" id="loginEmail" required placeholder="name@example.com" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">รหัสผ่าน</label>
+                        <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                    <button type="submit" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold shadow-md transition">
+                        เข้าสู่ระบบ
+                    </button>
+                </form>
+
+                <!-- Register Form -->
+                <form id="registerForm" onsubmit="handleEmailRegister(event)" class="space-y-4 hidden">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">ชื่อผู้ใช้งาน / ชื่อตระกูล</label>
+                        <input type="text" id="regDisplayName" required placeholder="เช่น ตระกูลใจดี" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">อีเมล</label>
+                        <input type="email" id="regEmail" required placeholder="name@example.com" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">รหัสผ่าน (ขั้นต่ำ 6 ตัวอักษร)</label>
+                        <input type="password" id="regPassword" required minlength="6" placeholder="••••••••" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                    <button type="submit" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold shadow-md transition">
+                        สมัครสมาชิก
+                    </button>
+                </form>
+
+                <div class="relative my-5">
+                    <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-200"></div></div>
+                    <div class="relative flex justify-center text-xs uppercase"><span class="bg-white px-2 text-slate-400">หรือ</span></div>
+                </div>
+
+                <!-- Google / Anonymous Auth Methods -->
+                <div class="space-y-2">
+                    <button type="button" onclick="handleGoogleSignIn()" class="w-full py-2 px-3 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 transition flex items-center justify-center gap-2">
+                        <i class="fa-brands fa-google text-rose-500 text-sm"></i>
+                        <span>เข้าสู่ระบบด้วย Google</span>
+                    </button>
+                    <button type="button" onclick="handleAnonymousSignIn()" class="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-medium text-slate-600 transition">
+                        ทดลองใช้งานแบบไม่เข้าสู่ระบบ (Guest Mode)
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-3 bg-slate-50 border-t border-slate-100 text-center">
+                <button type="button" onclick="closeAuthModal()" class="text-xs text-slate-500 hover:text-slate-700">ปิดหน้าต่างนี้</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MEMBER FORM MODAL (Add / Edit) -->
+    <div id="memberModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-fade-in">
+            <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <h3 id="modalTitle" class="font-bold text-slate-800 text-lg">เพิ่มสมาชิกใหม่</h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+
+            <form id="memberForm" class="flex-1 overflow-y-auto p-6 space-y-4">
+                <input type="hidden" id="memberId">
+                <input type="hidden" id="relTargetId">
+                <input type="hidden" id="relType">
+
+                <div id="relInfoBanner" class="hidden p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-700 font-medium flex items-center gap-2">
+                    <i class="fa-solid fa-link text-indigo-500"></i>
+                    <span id="relInfoText">เพิ่มเป็นคู่สมรส...</span>
+                </div>
+
+                <div class="flex flex-col items-center gap-2 pb-2">
+                    <div class="relative group">
+                        <img id="photoPreview" src="https://placehold.co/120x120/e2e8f0/64748b?text=รูปถ่าย" 
+                            class="w-24 h-24 rounded-full object-cover border-4 border-indigo-50 shadow-md">
+                        <label for="photoInput" class="absolute bottom-0 right-0 bg-indigo-600 text-white p-2 rounded-full shadow-lg cursor-pointer hover:bg-indigo-700 transition">
+                            <i class="fa-solid fa-camera text-xs"></i>
+                        </label>
+                    </div>
+                    <input type="file" id="photoInput" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">ชื่อจริง <span class="text-rose-500">*</span></label>
+                        <input type="text" id="firstName" required class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">นามสกุล</label>
+                        <input type="text" id="lastName" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">ชื่อเล่น</label>
+                        <input type="text" id="nickname" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">เพศ <span class="text-rose-500">*</span></label>
+                        <select id="gender" required class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+                            <option value="male">ชาย</option>
+                            <option value="female">หญิง</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="p-3 bg-slate-50 rounded-xl space-y-3 border border-slate-100">
+                    <div class="flex items-center justify-between">
+                        <label class="text-xs font-semibold text-slate-600">สถานะชีวิต</label>
+                        <div class="flex items-center gap-4 text-xs">
+                            <label class="inline-flex items-center gap-1 cursor-pointer">
+                                <input type="radio" name="isAlive" value="true" checked onchange="toggleDeathDateInput()">
+                                <span>ยังมีชีวิตอยู่</span>
+                            </label>
+                            <label class="inline-flex items-center gap-1 cursor-pointer">
+                                <input type="radio" name="isAlive" value="false" onchange="toggleDeathDateInput()">
+                                <span class="text-slate-500">เสียชีวิตแล้ว</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 pt-1">
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-500 mb-1">วัน/เดือน/ปีเกิด</label>
+                            <input type="date" id="birthDate" class="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+                        </div>
+                        <div id="deathDateContainer" class="opacity-50 pointer-events-none">
+                            <label class="block text-[11px] font-medium text-slate-500 mb-1">วันที่เสียชีวิต</label>
+                            <input type="date" id="deathDate" class="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">เบอร์โทรศัพท์</label>
+                        <input type="tel" id="phone" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">ที่อยู่ปัจจุบัน</label>
+                        <input type="text" id="address" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">ประวัติสังเขป / หมายเหตุ</label>
+                    <textarea id="bio" rows="2" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"></textarea>
+                </div>
+            </form>
+
+            <div class="px-6 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+                <button type="button" onclick="closeModal()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200/60 rounded-lg">ยกเลิก</button>
+                <button type="button" onclick="saveMemberForm()" class="px-5 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm">บันทึกข้อมูล</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- FIREBASE & APPLICATION LOGIC -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, 
+            onAuthStateChanged,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            GoogleAuthProvider,
+            signInWithPopup,
+            signOut,
+            updateProfile
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            getDoc, 
+            setDoc, 
+            onSnapshot,
+            collection 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase Setup
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'family-tree-app';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            	apiKey: "AIzaSyAAIN0X4jLRJug1qccJA50cYELmnSFhWag",
+		authDomain: "family-tree01.firebaseapp.com",
+  		projectId: "family-tree01",
+  		storageBucket: "family-tree01.firebasestorage.app",
+  		messagingSenderId: "33663811626",
+ 		appId: "1:33663811626:web:5b0b1a7b8ae0d47e5dc353",
+  		measurementId: "G-9LFJN9NRL8"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Application State
+        let currentUser = null;
+        let familyData = [];
+        let base64PhotoTemp = "";
+        let unsubscribeFirestore = null;
+
+        // Canvas State
+        let zoomScale = 1;
+        let panX = 0;
+        let panY = 0;
+        let isDraggingCanvas = false;
+        let startDragX = 0, startDragY = 0;
+
+        /* ==========================================================================
+           AUTHENTICATION & FIRESTORE REALTIME SYNC
+           ========================================================================== */
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            setupPanAndZoom();
+            setupSearch();
+
+            // Initial Auth Check
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                try {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } catch (e) {
+                    await signInAnonymously(auth);
+                }
+            }
+
+            onAuthStateChanged(auth, (user) => {
+                currentUser = user;
+                updateAuthUI(user);
+                if (user) {
+                    subscribeToFamilyTreeData(user.uid);
+                } else {
+                    if (unsubscribeFirestore) unsubscribeFirestore();
+                    familyData = [];
+                    renderTree();
+                }
+            });
+        });
+
+        // Firestore Listener Rule 1 & Rule 2 Compliant
+        function subscribeToFamilyTreeData(userId) {
+            updateSyncStatus('syncing', 'กำลังโหลดข้อมูล...');
+            const docRef = doc(db, 'artifacts', appId, 'users', userId, 'family_tree', 'main_tree');
+
+            if (unsubscribeFirestore) unsubscribeFirestore();
+
+            unsubscribeFirestore = onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    familyData = docSnap.data().members || [];
+                } else {
+                    familyData = [];
+                }
+                renderTree();
+                updateSyncStatus('online', 'ซิงค์ข้อมูล Cloud แล้ว');
+            }, (error) => {
+                console.error("Firestore Error:", error);
+                updateSyncStatus('error', 'ข้อผิดพลาดการเชื่อมต่อ');
+                showToast("ไม่สามารถโหลดข้อมูลจาก Cloud ได้", "error");
+            });
+        }
+
+        async function saveFamilyDataToCloud() {
+            if (!currentUser) {
+                showToast("กรุณาเข้าสู่ระบบเพื่อบันทึกข้อมูลลง Cloud", "info");
+                openAuthModal('login');
+                return;
+            }
+
+            updateSyncStatus('syncing', 'กำลังบันทึก...');
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'family_tree', 'main_tree');
+                await setDoc(docRef, {
+                    members: familyData,
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
+                updateSyncStatus('online', 'บันทึกสำเร็จ');
+            } catch (err) {
+                console.error("Cloud Save Error:", err);
+                updateSyncStatus('error', 'บันทึกไม่สำเร็จ');
+                showToast("บันทึกข้อมูลไม่สำเร็จ", "error");
+            }
+        }
+
+        /* ==========================================================================
+           AUTH HANDLERS
+           ========================================================================== */
+
+        window.handleEmailLogin = async (e) => {
+            e.preventDefault();
+            const email = document.getElementById("loginEmail").value;
+            const password = document.getElementById("loginPassword").value;
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                closeAuthModal();
+                showToast("เข้าสู่ระบบเรียบร้อยแล้ว", "success");
+            } catch (err) {
+                showToast("เข้าสู่ระบบไม่สำเร็จ: " + err.message, "error");
+            }
+        };
+
+        window.handleEmailRegister = async (e) => {
+            e.preventDefault();
+            const name = document.getElementById("regDisplayName").value;
+            const email = document.getElementById("regEmail").value;
+            const password = document.getElementById("regPassword").value;
+            try {
+                const res = await createUserWithEmailAndPassword(auth, email, password);
+                await updateProfile(res.user, { displayName: name });
+                closeAuthModal();
+                showToast("สมัครสมาชิกสำเร็จ!", "success");
+            } catch (err) {
+                showToast("ลงทะเบียนไม่สำเร็จ: " + err.message, "error");
+            }
+        };
+
+        window.handleGoogleSignIn = async () => {
+            try {
+                const provider = new GoogleAuthProvider();
+                await signInWithPopup(auth, provider);
+                closeAuthModal();
+                showToast("เข้าสู่ระบบด้วย Google เรียบร้อยแล้ว", "success");
+            } catch (err) {
+                showToast("การเข้าสู่ระบบผ่าน Google ขัดข้อง", "error");
+            }
+        };
+
+        window.handleAnonymousSignIn = async () => {
+            try {
+                await signInAnonymously(auth);
+                closeAuthModal();
+                showToast("เข้าสู่ระบบชั่วคราวในฐานะ Guest", "info");
+            } catch (err) {
+                showToast("เข้าใช้งานแบบ Guest ไม่สำเร็จ", "error");
+            }
+        };
+
+        window.handleSignOut = async () => {
+            await signOut(auth);
+            showToast("ออกจากระบบแล้ว", "info");
+        };
+
+        function updateAuthUI(user) {
+            const loginBtn = document.getElementById("loginModalBtn");
+            const userInfo = document.getElementById("userInfoDropdown");
+            const userName = document.getElementById("userDisplayName");
+
+            if (user && !user.isAnonymous) {
+                loginBtn.classList.add("hidden");
+                userInfo.classList.remove("hidden");
+                userName.textContent = user.displayName || user.email || "สมาชิก";
+            } else {
+                loginBtn.classList.remove("hidden");
+                userInfo.classList.add("hidden");
+            }
+        }
+
+        function updateSyncStatus(status, text) {
+            const syncStatus = document.getElementById("syncStatus");
+            const syncDot = document.getElementById("syncDot");
+            const syncText = document.getElementById("syncText");
+
+            syncStatus.classList.remove("hidden");
+            syncText.textContent = text;
+
+            if (status === 'online') {
+                syncDot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
+            } else if (status === 'syncing') {
+                syncDot.className = "w-2 h-2 rounded-full bg-amber-500 animate-spin";
+            } else {
+                syncDot.className = "w-2 h-2 rounded-full bg-rose-500";
+            }
+        }
+
+        /* ==========================================================================
+           TREE CANVAS RENDERING & LAYOUT
+           ========================================================================== */
+
+        function renderTree() {
+            const container = document.getElementById("treeNodesContainer");
+            const svg = document.getElementById("svgLines");
+            container.innerHTML = "";
+            svg.innerHTML = "";
+
+            if (familyData.length === 0) {
+                container.innerHTML = `
+                    <div class="p-8 text-center text-slate-400 bg-white/80 rounded-2xl border border-dashed border-slate-300 shadow-sm max-w-sm mx-auto my-12">
+                        <i class="fa-solid fa-users text-4xl mb-2 text-slate-300"></i>
+                        <p class="font-medium text-slate-600">ยังไม่มีข้อมูลในผังตระกูล</p>
+                        <p class="text-xs mt-1">คลิกปุ่ม "เพิ่มต้นตระกูล" เพื่อเริ่มสร้างแผนผัง</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const positions = calculateLayoutPositions();
+
+            familyData.forEach(member => {
+                const pos = positions[member.id] || { x: 0, y: 0 };
+                const card = createMemberCardElement(member, pos);
+                container.appendChild(card);
+            });
+
+            drawConnections(positions);
+        }
+
+        function calculateLayoutPositions() {
+            const positions = {};
+            const CARD_WIDTH = 200, CARD_HEIGHT = 120;
+            const GAP_X = 60, GAP_Y = 100;
+
+            const roots = familyData.filter(m => (!m.parentIds || m.parentIds.length === 0));
+            const levels = {};
+
+            function assignLevel(memberId, currentLevel) {
+                if (levels[memberId] !== undefined && levels[memberId] >= currentLevel) return;
+                levels[memberId] = currentLevel;
+                const member = familyData.find(m => m.id === memberId);
+                if (!member) return;
+
+                (member.spouseIds || []).forEach(sId => levels[sId] = currentLevel);
+                (member.childrenIds || []).forEach(cId => assignLevel(cId, currentLevel + 1));
+            }
+
+            roots.forEach(r => assignLevel(r.id, 0));
+            familyData.forEach(m => { if (levels[m.id] === undefined) levels[m.id] = 0; });
+
+            const levelGroups = {};
+            Object.keys(levels).forEach(mId => {
+                const lvl = levels[mId];
+                if (!levelGroups[lvl]) levelGroups[lvl] = [];
+                if (!levelGroups[lvl].includes(mId)) levelGroups[lvl].push(mId);
+            });
+
+            Object.keys(levelGroups).forEach(lvlStr => {
+                const list = levelGroups[lvlStr];
+                const totalWidth = list.length * CARD_WIDTH + (list.length - 1) * GAP_X;
+                const startX = -totalWidth / 2;
+
+                list.forEach((mId, index) => {
+                    positions[mId] = {
+                        x: startX + index * (CARD_WIDTH + GAP_X),
+                        y: parseInt(lvlStr) * (CARD_HEIGHT + GAP_Y)
+                    };
+                });
+            });
+
+            return positions;
+        }
+
+        function createMemberCardElement(member, pos) {
+            const div = document.createElement("div");
+            div.className = `member-card absolute bg-white rounded-2xl shadow-md border-2 p-3 w-[200px] cursor-pointer z-10 ${
+                member.gender === 'male' ? 'border-blue-400' : 'border-pink-400'
+            } ${!member.isAlive ? 'opacity-80 bg-slate-50' : ''}`;
+            
+            div.style.left = `${pos.x}px`;
+            div.style.top = `${pos.y}px`;
+            div.dataset.id = member.id;
+
+            div.innerHTML = `
+                <div class="flex items-center gap-2.5">
+                    <img src="${member.photo || 'https://placehold.co/100x100/e2e8f0/64748b?text=รูป'}" 
+                         class="w-12 h-12 rounded-full object-cover border border-slate-200 shadow-sm">
+                    <div class="overflow-hidden flex-1">
+                        <h4 class="font-bold text-slate-800 text-sm truncate leading-snug">${member.firstName}</h4>
+                        <p class="text-xs text-slate-500 truncate">${member.lastName || ''}</p>
+                        ${member.nickname ? `<span class="inline-block text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded-md mt-0.5">(${member.nickname})</span>` : ''}
+                    </div>
+                </div>
+                <button onclick="event.stopPropagation(); window.showAddRelativeOptions('${member.id}')" 
+                        class="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-indigo-600 hover:bg-indigo-700 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs shadow-md transition">
+                    <i class="fa-solid fa-plus"></i>
+                </button>
+            `;
+
+            div.onclick = () => openDetailDrawer(member.id);
+            return div;
+        }
+
+        function drawConnections(positions) {
+            const svg = document.getElementById("svgLines");
+            const CARD_WIDTH = 200, CARD_HEIGHT = 100;
+
+            familyData.forEach(member => {
+                const parentPos = positions[member.id];
+                if (!parentPos) return;
+
+                (member.spouseIds || []).forEach(spouseId => {
+                    if (member.id < spouseId && positions[spouseId]) {
+                        const spousePos = positions[spouseId];
+                        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                        line.setAttribute("x1", parentPos.x + CARD_WIDTH);
+                        line.setAttribute("y1", parentPos.y + CARD_HEIGHT / 2);
+                        line.setAttribute("x2", spousePos.x);
+                        line.setAttribute("y2", spousePos.y + CARD_HEIGHT / 2);
+                        line.setAttribute("class", "spouse-line");
+                        svg.appendChild(line);
+                    }
+                });
+
+                (member.childrenIds || []).forEach(childId => {
+                    const childPos = positions[childId];
+                    if (childPos) {
+                        const startX = parentPos.x + (CARD_WIDTH / 2);
+                        const startY = parentPos.y + CARD_HEIGHT;
+                        const endX = childPos.x + (CARD_WIDTH / 2);
+                        const endY = childPos.y;
+                        const midY = startY + (endY - startY) / 2;
+
+                        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                        path.setAttribute("d", `M ${startX} ${startY} V ${midY} H ${endX} V ${endY}`);
+                        path.setAttribute("class", "tree-line");
+                        svg.appendChild(path);
+                    }
+                });
+            });
+        }
+
+        /* ==========================================================================
+           CANVAS CONTROLS
+           ========================================================================== */
+
+        function setupPanAndZoom() {
+            const container = document.getElementById("canvasContainer");
+
+            container.addEventListener("mousedown", (e) => {
+                if (e.target.closest('.member-card') || e.target.closest('button')) return;
+                isDraggingCanvas = true;
+                startDragX = e.clientX - panX;
+                startDragY = e.clientY - panY;
+            });
+
+            window.addEventListener("mousemove", (e) => {
+                if (!isDraggingCanvas) return;
+                panX = e.clientX - startDragX;
+                panY = e.clientY - startDragY;
+                applyTransform();
+            });
+
+            window.addEventListener("mouseup", () => isDraggingCanvas = false);
+
+            container.addEventListener("wheel", (e) => {
+                e.preventDefault();
+                const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+                zoomScale = Math.min(Math.max(0.3, zoomScale * zoomFactor), 2.5);
+                applyTransform();
+            }, { passive: false });
+        }
+
+        function applyTransform() {
+            document.getElementById("treeViewport").style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+        }
+
+        window.zoomIn = () => { zoomScale = Math.min(2.5, zoomScale * 1.2); applyTransform(); };
+        window.zoomOut = () => { zoomScale = Math.max(0.3, zoomScale / 1.2); applyTransform(); };
+        window.resetZoomPan = () => { zoomScale = 1; panX = window.innerWidth / 3; panY = 100; applyTransform(); };
+
+        /* ==========================================================================
+           MEMBER FORM & CRUD
+           ========================================================================== */
+
+        window.openAddModal = (targetId = null, relType = null) => {
+            document.getElementById("memberForm").reset();
+            document.getElementById("memberId").value = "";
+            document.getElementById("relTargetId").value = targetId || "";
+            document.getElementById("relType").value = relType || "";
+            document.getElementById("photoPreview").src = "https://placehold.co/120x120/e2e8f0/64748b?text=รูปถ่าย";
+            base64PhotoTemp = "";
+
+            const banner = document.getElementById("relInfoBanner");
+            if (targetId && relType) {
+                const target = familyData.find(m => m.id === targetId);
+                const names = { parent: "พ่อ/แม่", spouse: "คู่สมรส", child: "ลูก" };
+                document.getElementById("relInfoText").textContent = `เพิ่มเป็น ${names[relType]} ของ ${target.firstName}`;
+                banner.classList.remove("hidden");
+            } else {
+                banner.classList.add("hidden");
+            }
+
+            document.getElementById("memberModal").classList.remove("hidden");
+        };
+
+        window.closeModal = () => document.getElementById("memberModal").classList.add("hidden");
+
+        window.saveMemberForm = async () => {
+            const form = document.getElementById("memberForm");
+            if (!form.checkValidity()) { form.reportValidity(); return; }
+
+            const id = document.getElementById("memberId").value;
+            const targetId = document.getElementById("relTargetId").value;
+            const relType = document.getElementById("relType").value;
+            const isAlive = document.querySelector('input[name="isAlive"]:checked').value === 'true';
+
+            const memberObj = {
+                id: id || `m_${Date.now()}`,
+                firstName: document.getElementById("firstName").value.trim(),
+                lastName: document.getElementById("lastName").value.trim(),
+                nickname: document.getElementById("nickname").value.trim(),
+                gender: document.getElementById("gender").value,
+                isAlive: isAlive,
+                birthDate: document.getElementById("birthDate").value,
+                deathDate: isAlive ? "" : document.getElementById("deathDate").value,
+                phone: document.getElementById("phone").value.trim(),
+                address: document.getElementById("address").value.trim(),
+                bio: document.getElementById("bio").value.trim(),
+                photo: base64PhotoTemp || "https://placehold.co/120x120/e2e8f0/64748b?text=รูปถ่าย",
+                spouseIds: [], parentIds: [], childrenIds: []
+            };
+
+            if (id) {
+                const idx = familyData.findIndex(m => m.id === id);
+                if (idx !== -1) {
+                    memberObj.spouseIds = familyData[idx].spouseIds || [];
+                    memberObj.parentIds = familyData[idx].parentIds || [];
+                    memberObj.childrenIds = familyData[idx].childrenIds || [];
+                    familyData[idx] = memberObj;
+                }
+            } else {
+                if (targetId && relType) {
+                    const target = familyData.find(m => m.id === targetId);
+                    if (target) {
+                        if (relType === 'spouse') {
+                            memberObj.spouseIds.push(target.id);
+                            target.spouseIds = target.spouseIds || [];
+                            if (!target.spouseIds.includes(memberObj.id)) target.spouseIds.push(memberObj.id);
+                        } else if (relType === 'child') {
+                            memberObj.parentIds.push(target.id);
+                            target.childrenIds = target.childrenIds || [];
+                            if (!target.childrenIds.includes(memberObj.id)) target.childrenIds.push(memberObj.id);
+                        } else if (relType === 'parent') {
+                            memberObj.childrenIds.push(target.id);
+                            target.parentIds = target.parentIds || [];
+                            if (!target.parentIds.includes(memberObj.id)) target.parentIds.push(memberObj.id);
+                        }
+                    }
+                }
+                familyData.push(memberObj);
+            }
+
+            closeModal();
+            renderTree();
+            await saveFamilyDataToCloud();
+        };
+
+        window.handleImageUpload = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement("canvas");
+                    const ctx = canvas.getContext("2d");
+                    canvas.width = 150; canvas.height = 150;
+                    ctx.drawImage(img, 0, 0, 150, 150);
+                    base64PhotoTemp = canvas.toDataURL("image/jpeg", 0.8);
+                    document.getElementById("photoPreview").src = base64PhotoTemp;
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.showAddRelativeOptions = (targetMemberId) => {
+            const optionsHtml = `
+                <div class="p-2 space-y-1">
+                    <button onclick="openAddModal('${targetMemberId}', 'parent')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-indigo-50">พ่อ / แม่</button>
+                    <button onclick="openAddModal('${targetMemberId}', 'spouse')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-pink-50">คู่สมรส</button>
+                    <button onclick="openAddModal('${targetMemberId}', 'child')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-blue-50">บุตร</button>
+                </div>
+            `;
+            openAddModal(targetMemberId, 'child'); // Default shortcut
+        };
+
+        /* ==========================================================================
+           MODALS & DRAWER UI HELPERS
+           ========================================================================== */
+
+        window.openAuthModal = (tab = 'login') => {
+            switchAuthTab(tab);
+            document.getElementById("authModal").classList.remove("hidden");
+        };
+
+        window.closeAuthModal = () => document.getElementById("authModal").classList.add("hidden");
+
+        window.switchAuthTab = (tab) => {
+            const loginForm = document.getElementById("loginForm");
+            const regForm = document.getElementById("registerForm");
+            const tabLogin = document.getElementById("tabLoginBtn");
+            const tabReg = document.getElementById("tabRegisterBtn");
+
+            if (tab === 'login') {
+                loginForm.classList.remove("hidden");
+                regForm.classList.add("hidden");
+                tabLogin.className = "flex-1 py-3 text-sm font-semibold text-indigo-600 border-b-2 border-indigo-600 bg-white";
+                tabReg.className = "flex-1 py-3 text-sm font-semibold text-slate-500 hover:text-slate-700";
+            } else {
+                loginForm.classList.add("hidden");
+                regForm.classList.remove("hidden");
+                tabReg.className = "flex-1 py-3 text-sm font-semibold text-indigo-600 border-b-2 border-indigo-600 bg-white";
+                tabLogin.className = "flex-1 py-3 text-sm font-semibold text-slate-500 hover:text-slate-700";
+            }
+        };
+
+        function openDetailDrawer(memberId) {
+            const member = familyData.find(m => m.id === memberId);
+            if (!member) return;
+
+            document.getElementById("drawerBody").innerHTML = `
+                <div class="text-center pb-4 border-b border-slate-100">
+                    <img src="${member.photo || 'https://placehold.co/120x120'}" class="w-20 h-20 rounded-full object-cover mx-auto mb-2 shadow">
+                    <h2 class="text-lg font-bold text-slate-800">${member.firstName} ${member.lastName || ''}</h2>
+                    <span class="text-xs text-indigo-600">${member.nickname ? `(${member.nickname})` : ''}</span>
+                </div>
+                <div class="space-y-2 text-xs">
+                    <p><span class="text-slate-400">สถานะ:</span> ${member.isAlive ? 'ยังมีชีวิตอยู่' : 'เสียชีวิตแล้ว'}</p>
+                    <p><span class="text-slate-400">เบอร์โทร:</span> ${member.phone || '-'}</p>
+                    <p><span class="text-slate-400">ที่อยู่:</span> ${member.address || '-'}</p>
+                </div>
+            `;
+
+            document.getElementById("drawerDeleteBtn").onclick = async () => {
+                if (confirm("ลบสมาชิกรายนี้?")) {
+                    familyData = familyData.filter(m => m.id !== memberId);
+                    closeDetailDrawer();
+                    renderTree();
+                    await saveFamilyDataToCloud();
+                }
+            };
+
+            document.getElementById("detailDrawer").classList.remove("translate-x-full");
+        }
+
+        window.closeDetailDrawer = () => document.getElementById("detailDrawer").classList.add("translate-x-full");
+
+        function setupSearch() {
+            const input = document.getElementById("searchInput");
+            input.addEventListener("input", (e) => {
+                const query = e.target.value.toLowerCase().trim();
+                if (!query) return;
+                const match = familyData.find(m => m.firstName.toLowerCase().includes(query));
+                if (match) {
+                    const card = document.querySelector(`[data-id="${match.id}"]`);
+                    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            });
+        }
+
+        function showToast(message, type = "info") {
+            const toast = document.createElement("div");
+            toast.className = "bg-slate-800 text-white px-4 py-2 rounded-lg text-xs shadow-lg animate-fade-in";
+            toast.textContent = message;
+            document.getElementById("toastContainer").appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+    </script>
+</body>
+</html>
